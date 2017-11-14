@@ -1,0 +1,17 @@
+[package]
+authors = ["Garrett Berg <googberg@gmail.com>"]
+name = "artifact-data"
+version = "0.1.0"
+
+[dependencies]
+failure = {git = "https://github.com/withoutboats/failure"}
+failure_derive = {git = "https://github.com/withoutboats/failure_derive"}
+lazy_static = "0.2.9"
+matches = "0.1.6"
+prelude = "0.2.0"
+regex = "0.2.2"
+serde = "1.0.20"
+serde_derive = "1.0.20"
+
+[dev-dependencies]
+quickcheck = "0.4.1"
