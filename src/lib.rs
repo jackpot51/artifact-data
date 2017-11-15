@@ -15,12 +15,15 @@ extern crate serde;
 #[macro_use] extern crate quickcheck;
 #[cfg(test)] extern crate serde_json;
 
-mod name;
 mod dev_prelude;
+mod cache;
+mod name;
+mod family;
 
 // TEST
 
 #[cfg(test)] mod test_prelude;
 #[cfg(test)] mod test_name;
 
-pub use name::{NameError, Type, InternalName, Name, clear_cache, NAME_VALID_STR};
+pub use name::{NameError, Type, InternalName, Name, NAME_VALID_STR};
+pub use cache::{clear_cache};

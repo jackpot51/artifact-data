@@ -10,21 +10,11 @@ use std::fmt;
 use std::io;
 use std::result;
 use serde::{self, Serialize, Deserialize, Serializer, Deserializer};
-
-use prelude::*;
-use dev_prelude::*;
 use regex::Regex;
 
-// EXPORTED TYPES AND FUNCTIONS
+use dev_prelude::*;
 
-/// Clear the internal name cache.
-///
-/// Mosty used for tests to prevent memory from balooning.
-pub fn clear_cache() {
-    let mut cache = NAME_CACHE.lock().unwrap();
-    cache.keys.clear();
-    cache.names.clear();
-}
+// EXPORTED TYPES AND FUNCTIONS
 
 #[derive(Debug, Fail)]
 pub enum NameError {
@@ -60,15 +50,6 @@ pub struct InternalName {
     pub raw: String,
 }
 
-/// Global cache of names
-pub struct NameCache {
-    names: HashMap<String, Name>,
-    // Use HashMap just for the entry API
-    // also... this is equivalent when optimized
-    keys: HashMap<Arc<String>, ()>,
-}
-
-
 // CONSTANTS
 
 /// The location in the name where the type is split at
@@ -76,7 +57,7 @@ pub struct NameCache {
 /// REQ-foo
 ///    ^
 /// ```
-const TYPE_SPLIT_LOC: usize = 3;
+pub const TYPE_SPLIT_LOC: usize = 3;
 
 macro_rules! NAME_VALID_CHARS {
     () => { "A-Z0-9_" };
@@ -95,46 +76,10 @@ lazy_static!{
     /// Valid name regular expression
     static ref NAME_VALID_RE: Regex = Regex::new(
         &format!("(?i)^{}$", NAME_VALID_STR)).unwrap();
-
-    /// global cache of names
-    static ref NAME_CACHE: Mutex<NameCache> = Mutex::new(NameCache {
-        names: HashMap::new(),
-        keys: HashMap::new(),
-    });
 }
 
 
 // NAME METHODS
-
-impl Name {
-    /// The parent of the name. This must exist if not None for all
-    /// artifats.
-    pub fn parent(&self) -> Option<Name> {
-        let loc = self.raw.rfind('-').expect("name.parent:rfind");
-        if loc == TYPE_SPLIT_LOC {
-            None
-        } else {
-            Some(Name::from_str(&self.raw[0..loc]).expect("name.parent:from_str"))
-        }
-    }
-
-    /// The artifact that this COULD be automatically linked to.
-    ///
-    /// - REQ is not autolinked to anything
-    /// - SPC is autolinked to the REQ with the same name
-    /// - TST is autolinked to the SPC with the same name
-    pub fn auto_partof(&self) -> Option<Name> {
-        let ty = match self.ty {
-            Type::REQ => return None,
-            Type::SPC => Type::REQ,
-            Type::TST => Type::SPC,
-        };
-        let mut out = String::with_capacity(self.raw.len());
-        out.push_str(ty.as_str());
-        out.push_str(&self.raw[TYPE_SPLIT_LOC..self.raw.len()]);
-        Some(Name::from_str(&out).unwrap())
-    }
-}
 
 impl Serialize for Name {
     fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
@@ -173,7 +118,7 @@ impl Deref for Name {
 impl FromStr for Name {
     type Err = Error;
     fn from_str(raw: &str) -> Result<Name> {
-        let mut cache = NAME_CACHE.lock().expect("name cache poisioned");
+        let mut cache = ::cache::NAME_CACHE.lock().expect("name cache poisioned");
         cache.get(raw)
     }
 }
@@ -246,10 +191,10 @@ impl Type {
 
 // NAME CACHE METHODS
 
-impl NameCache {
+impl ::cache::NameCache {
     /// Get the name from the cache, inserting it if it doesn't exist
     ///
-    /// This is the primary way that names are actually instantiated
+    /// This is the only way that names are created.
     fn get(&mut self, raw: &str) -> Result<Name> {
         // FIXME: I would like to use Arc for raw+name, but
         // Borrow<str> is not implemented for Arc<String>

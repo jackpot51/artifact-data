@@ -93,14 +93,10 @@ The cached datatypes are:
 
 There are two primary caches:
 - [[.name]]: the name cache is a `HashMap<String.to_ascii_uppercase, Name>`.
-  - Names are looked up by simply capitalizing all their characters. 
+  - Names are looked up by their raw representation.
   - If they do not exist then they are validated and inserted.
-  - This saves on validating the names if they already exist
-  - It also means that the first name that is insertd will be the "standard"
-    raw-representation of that name. So if you define a name as `ART-name`
-    but then use it in a `partof` as `ART-NAME`, `art fmt` will correct
-    them all to `ART-name`.
-  - The `CachedNames` object has the following methods:
+  - This saves on validating identical names if they already exist
+  - The `NameCache` object has the following methods:
     - `get(name: &str) -> Result<Name>`: return the cached Name object.
 - [[.path]]: the path cache has two components:
     - `HashSet<PathRc>` reference counted set of all known paths.
@@ -175,7 +171,7 @@ From the implementations, we can randomize testing for the following:
 - [[.load_name]]: use `Name` and `InvalidName` to great effect.
 - [[.load_artifacts]]: simply convert randomly generated artifacts into files
 - [[.load_src]]: load RawCodeLoc and have expected result
-  
+
 
 [1]: https://docs.rs/quickcheck/0.4.2/quickcheck/
 
