@@ -17,6 +17,8 @@ use regex::Regex;
 
 // EXPORTED TYPES AND FUNCTIONS
 
+/// Clear the internal name cache.
+///
 /// Mosty used for tests to prevent memory from balooning.
 pub fn clear_cache() {
     let mut cache = NAME_CACHE.lock().unwrap();
@@ -25,7 +27,7 @@ pub fn clear_cache() {
 }
 
 #[derive(Debug, Fail)]
-enum NameError {
+pub enum NameError {
     #[fail(display = "{}", msg)]
     InvalidName {
         msg: String,

@@ -70,6 +70,11 @@ impl Iterator for NameShrinker {
     }
 }
 
+/// Return a vector of the `raw` names
+pub fn names_raw(names: &[Name]) -> Vec<String> {
+    names.iter().map(|n| n.raw.clone()).collect()
+}
+
 /// Assert that the name is valid
 fn assert_names_valid(raw: &[&str]) {
     let errors = raw
@@ -91,7 +96,7 @@ fn assert_names_invalid(raw: &[&str]) {
         .iter()
         .map(|r| (r, Name::from_str(r)))
         .filter_map(|(raw, result)| match result {
-            Ok(n) => Some(raw),
+            Ok(_) => Some(raw),
             Err(_) => None,
         }).collect::<Vec<_>>();
     if !errors.is_empty() {
@@ -188,7 +193,7 @@ fn sanity_serde_name() {
     ];
     assert_eq!(json, serde_json::to_string(expected).unwrap());
     let names: Vec<Name> = serde_json::from_str(&json).unwrap();
-    let result = names.iter().map(|n| n.raw.clone()).collect::<Vec<_>>();
+    let result = names_raw(&names);
     assert_eq!(expected, result.as_slice());
 }
 

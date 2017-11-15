@@ -22,3 +22,5 @@ mod dev_prelude;
 
 #[cfg(test)] mod test_prelude;
 #[cfg(test)] mod test_name;
+
+pub use name::{NameError, Type, InternalName, Name, clear_cache, NAME_VALID_STR};
