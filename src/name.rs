@@ -8,6 +8,8 @@ use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 use std::io;
+use std::result;
+use serde::{self, Serialize, Deserialize, Serializer, Deserializer};
 
 use prelude::*;
 use dev_prelude::*;
@@ -24,36 +26,10 @@ enum NameError {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-// #[derive(Serialize, Deserialize)]
-// #[serde(with = "serde_name")]
 /// The atomically reference counted name, the primary one used by
 /// this module.
 pub struct Name {
     internal_name: Arc<InternalName>,
-}
-
-impl fmt::Debug for Name {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.internal_name)
-    }
-}
-
-// Name is basically a smart pointer for internal_name
-impl Deref for Name {
-    type Target = InternalName;
-
-    fn deref(&self) -> &InternalName {
-       self.internal_name.as_ref()
-    }
-}
-
-
-impl FromStr for Name {
-    type Err = Error;
-    fn from_str(raw: &str) -> Result<Name> {
-        let mut cache = NAME_CACHE.lock().expect("name cache poisioned");
-        cache.get(raw)
-    }
 }
 
 /// type of an `Artifact`
@@ -113,6 +89,50 @@ lazy_static!{
 
 
 // NAME METHODS
+
+impl Serialize for Name {
+    fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        serializer.serialize_str(&self.raw)
+    }
+}
+
+impl<'de> Deserialize<'de> for Name {
+    fn deserialize<D>(deserializer: D) -> result::Result<Name, D::Error>
+        where D: Deserializer<'de>
+    {
+        // FIXME: can this be str::deserialize?
+        let s = String::deserialize(deserializer)?;
+        Name::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl fmt::Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.internal_name)
+    }
+}
+
+// Name is basically a smart pointer for internal_name
+impl Deref for Name {
+    type Target = InternalName;
+
+    fn deref(&self) -> &InternalName {
+       self.internal_name.as_ref()
+    }
+}
+
+
+impl FromStr for Name {
+    type Err = Error;
+    fn from_str(raw: &str) -> Result<Name> {
+        let mut cache = NAME_CACHE.lock().expect("name cache poisioned");
+        cache.get(raw)
+    }
+}
+
+// INTERNAL NAME METHODS
 
 impl InternalName {
     /// Get the raw str representation
@@ -182,6 +202,8 @@ impl Type {
 
 impl NameCache {
     /// Get the name from the cache, inserting it if it doesn't exist
+    ///
+    /// This is the primary way that names are actually instantiated
     pub fn get(&mut self, raw: &str) -> Result<Name> {
         // FIXME: I would like to use Arc for raw+name, but
         // Borrow<str> is not implemented for Arc<String>
@@ -208,42 +230,21 @@ impl NameCache {
             _ => unreachable!(),
         };
 
-        let internal = InternalName {
-            ty: ty,
-            key: key,
-            raw: raw.into(),
-        };
-
         let name = Name {
-            internal_name: Arc::new(internal),
+            internal_name: Arc::new(InternalName {
+                ty: ty,
+                key: key,
+                raw: raw.into(),
+            }),
         };
         self.names.insert(raw.into(), name.clone());
         Ok(name)
     }
 
+    /// Mosty used for tests to prevent memory from balooning,
+    /// but could be used in other places too.
     pub fn clear(&mut self) {
         self.keys.clear();
         self.names.clear();
-    }
-}
-
-/// Methods for serializing/deserializing names
-mod serde_name {
-    use super::{Name};
-    use std::str::FromStr;
-    use serde::{self, Deserialize, Serializer, Deserializer};
-
-    pub fn serialize<S>(name: &Name, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
-    {
-        serializer.serialize_str(&name.raw)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Name, D::Error>
-        where D: Deserializer<'de>
-    {
-        // FIXME: can this be str::deserizlie?
-        let s = String::deserialize(deserializer)?;
-        Name::from_str(&s).map_err(serde::de::Error::custom)
     }
 }

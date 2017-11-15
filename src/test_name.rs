@@ -156,20 +156,21 @@ fn name_cache_sanity() {
     assert_eq!(expected2, name2.raw);
 }
 
-// #[test]
-// fn serde_sanity() {
-//     let expected = &[
-//         "REQ-foo",
-//         "REQ-FOO",
-//         "REQ-bar",
-//         "SPC-foo-bar",
-//         "tst-foo-BAR",
-//     ];
-//     let json = serde_json::to_string(expected).unwrap();
-//     let names: Vec<Name> = serde_json::from_str(&json).unwrap();
-//     let result = names.iter().map(|n| n.raw).collect::<Vec<_>>();
-//     assert_eq!(expected, &result);
-// }
+#[test]
+fn serde_sanity() {
+    let json = r#"["REQ-foo","REQ-FOO","REQ-bar","SPC-foo-bar","tst-foo-BAR"]"#;
+    let expected = &[
+        "REQ-foo",
+        "REQ-FOO",
+        "REQ-bar",
+        "SPC-foo-bar",
+        "tst-foo-BAR",
+    ];
+    assert_eq!(json, serde_json::to_string(expected).unwrap());
+    let names: Vec<Name> = serde_json::from_str(&json).unwrap();
+    let result = names.iter().map(|n| n.raw.clone()).collect::<Vec<_>>();
+    assert_eq!(expected, result.as_slice());
+}
 
 quickcheck! {
     fn roundtrip(name: Name) -> bool {
