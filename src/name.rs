@@ -90,6 +90,17 @@ lazy_static!{
 
 // NAME METHODS
 
+impl Name {
+    pub fn parent(&self) -> Option<Name> {
+        let loc = self.raw.rfind('-').expect("name.parent:rfind");
+        if loc == 3 {
+            None
+        } else {
+            Some(Name::from_str(&self.raw[0..loc]).expect("name.parent:from_str"))
+        }
+    }
+}
+
 impl Serialize for Name {
     fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
         where S: Serializer
@@ -241,8 +252,7 @@ impl NameCache {
         Ok(name)
     }
 
-    /// Mosty used for tests to prevent memory from balooning,
-    /// but could be used in other places too.
+    /// Mosty used for tests to prevent memory from balooning.
     pub fn clear(&mut self) {
         self.keys.clear();
         self.names.clear();

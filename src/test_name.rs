@@ -3,8 +3,9 @@ use dev_prelude::*;
 use test_prelude::*;
 use name::*;
 
-
 use serde_json;
+
+// HELPERS and TRAITS
 
 impl Arbitrary for Name {
     fn arbitrary<G: Gen>(g: &mut G) -> Name {
@@ -111,6 +112,31 @@ fn assert_names_invalid(raw: &[&str]) {
     }
 }
 
+/// Given list of `(name, parent)`, assert `name.parent() == parent`
+fn assert_parents(values: &[(&str, Option<&str>)]) {
+    let errors = values
+        .iter()
+        .map(|&(name, expected)|
+            // convert the strings to actual names
+            ( Name::from_str(name).unwrap()
+            , expected.map(|n| Name::from_str(n).unwrap())
+            )
+        )
+        .filter_map(|(name, expected)| {
+            let result = name.parent();
+            if result == expected {
+                None
+            } else {
+                Some(format!("input={:?} expect={:?} result={:?}", name, expected, result))
+            }
+        }).collect::<Vec<_>>();
+    if !errors.is_empty() {
+        panic!("The following had unexpected parents:\n{:#?}", errors);
+    }
+}
+
+// SANITY TESTS
+
 #[test]
 fn names_sanity() {
     assert_names_valid(&[
@@ -172,11 +198,39 @@ fn serde_sanity() {
     assert_eq!(expected, result.as_slice());
 }
 
+#[test]
+fn parent_sanity() {
+    assert_parents(&[
+        // no parents
+        ("REQ-foo", None),
+        ("TST-a", None),
+        ("TST-23kjskljef32", None)
+
+        // has parents
+        ("REQ-a-b", Some("REQ-a")),
+        ("REQ-A-B", Some("REQ-A")),
+        ("REQ-aasdf-bbSdf-DES", Some("REQ-aasdf-bbSdf")),
+    ]);
+}
+
 quickcheck! {
     fn roundtrip(name: Name) -> bool {
         let repr = name.key_str();
         let from_repr = Name::from_str(&repr).unwrap();
 
         from_repr == name && repr == from_repr.key_str()
+    }
+
+    fn parent(name: Name) -> bool {
+        let mut items = name.raw.split('-').map(|s| s.to_string()).collect::<Vec<_>>();
+        if items.len() > 2 {
+            items.pop();
+            let expected_raw = items.join("-");
+            let expected = Name::from_str(&expected_raw).unwrap();
+            let result = name.parent().unwrap();
+            expected_raw == result.raw && expected == result
+        } else {
+            name.parent().is_none()
+        }
     }
 }
