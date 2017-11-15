@@ -8,8 +8,14 @@ use dev_prelude::*;
 use regex::Regex;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
+use std::convert::AsRef;
 
-// EXPORTED TYPES
+// EXPORTED TYPES AND FUNCTIONS
+
+/// Get the name from the cache, inserting it if it doesn't exist
+pub fn cached_name(name: &str) -> Result<Name> {
+    NAME_CACHE.get(name)
+}
 
 #[derive(Debug, Fail)]
 enum NameError {
@@ -73,11 +79,9 @@ lazy_static!{
         &format!("(?i)^{}$", NAME_VALID_STR)).unwrap();
 
     /// global cache of names
-    pub static ref NAME_CACHE: Mutex<NameCache> = Mutex::new(
-        NameCache {
-            names: Mutex::new(HashMap::new()),
-        }
-    );
+    pub static ref NAME_CACHE: NameCache = NameCache {
+        names: Mutex::new(HashMap::new()),
+    };
 }
 
 
@@ -174,5 +178,28 @@ impl FromStr for Type {
             "TST" => Ok(Type::TST),
             _ => Err(NameError::InvalidType { raw: s.into()}.into()),
         }
+    }
+}
+
+// NAME CACHE METHODS
+
+impl NameCache {
+    /// Get the name from the cache, inserting it if it doesn't exist
+    pub fn get(&self, name: &str) -> Result<Name> {
+        let mut names = self.names.lock().expect("NameCache poisoned");
+        let out  = names.entry(name.to_ascii_uppercase())
+            .or_insert(Arc::new(InternalName::from_str(name)?));
+        Ok((*out).clone())
+    }
+
+    #[allow(dead_code)]
+    /// Clear the cache, mostly used in testing but provided in
+    /// case it is needed
+    ///
+    /// Since all the internal items are just reference counted
+    /// InternalNames, they will still exist
+    pub fn clear(&self) {
+        let mut names = self.names.lock().expect("NameCache poisoned");
+        names.clear();
     }
 }

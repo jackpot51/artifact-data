@@ -141,6 +141,20 @@ fn names_sanity() {
     ]);
 }
 
+#[test]
+fn name_cache_sanity() {
+    NAME_CACHE.clear();
+    let expected = "REQ-foo";
+    let name = cached_name(expected).unwrap();
+    let name2 = cached_name("REQ-FOO").unwrap();
+
+    assert_eq!(name, name2);
+
+    // The "raw" data is the first inserted name
+    assert_eq!(expected, name.raw);
+    assert_eq!(expected, name2.raw);
+}
+
 quickcheck! {
     fn roundtrip(name: InternalName) -> bool {
         let repr = name.key_string();
