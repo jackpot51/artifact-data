@@ -1,7 +1,7 @@
 use prelude::*;
 use dev_prelude::*;
 use test_prelude::*;
-use name::{self, Name};
+use name::{self, Name, Type};
 
 use serde_json;
 
@@ -77,7 +77,7 @@ fn assert_names_valid(raw: &[&str]) {
         .map(|r| (r, Name::from_str(r)))
         .filter_map(|(raw, result)| match result {
             Ok(_) => None,
-            Err(e) => Some(raw),
+            Err(_) => Some(raw),
         }).collect::<Vec<_>>();
     if !errors.is_empty() {
         panic!("The following names were not valid:\n{:#?}", errors);
@@ -100,7 +100,9 @@ fn assert_names_invalid(raw: &[&str]) {
 }
 
 /// Given list of `(name, parent)`, assert `name.parent() == parent`
-fn assert_parents(values: &[(&str, Option<&str>)]) {
+fn assert_method<F>(method: F, values: &[(&str, Option<&str>)])
+        where F: Fn(&Name) -> Option<Name>
+{
     let errors = values
         .iter()
         .map(|&(name, expected)|
@@ -110,7 +112,7 @@ fn assert_parents(values: &[(&str, Option<&str>)]) {
             )
         )
         .filter_map(|(name, expected)| {
-            let result = name.parent();
+            let result = method(&name);
             if result == expected {
                 None
             } else {
@@ -118,7 +120,7 @@ fn assert_parents(values: &[(&str, Option<&str>)]) {
             }
         }).collect::<Vec<_>>();
     if !errors.is_empty() {
-        panic!("The following had unexpected parents:\n{:#?}", errors);
+        panic!("The method had unexpected results:\n{:#?}", errors);
     }
 }
 
@@ -130,35 +132,40 @@ fn names_sanity() {
         "REQ-a",
         "REQ-a-b",
         "REQ-foo",
+        "REQ-foo_bar",
         "SPC-foo",
         "TST-foo",
         "TST-Foo",
         "TST-FoO",
         "tst-FOO",
         "tst-foo",
-        "TST-bPRJM07msqpQ",
-        "TST-bPRJM07msqpQ-p",
-        "TST-bPRJM07msqpQ-pRM",
-        "TST-bPRJM07msqpQ-pRMBtV",
+        "TST-bPRJM_07msqpQ",
         "TST-bPRJM07msqpQ-pRMBtV-HJmJOpEgFTI2p8zdEMpluTbnkepzdELxf5CntsW",
     ]);
 
     assert_names_invalid(&[
         "RSK-foo",
-        "RSK-foo",
         "REQ",
         "REQ-",
         "REQ-a-",
+        "REQ-a--",
         "REQ-a-b-",
+        "REQ--a",
+        "REQ-a--b",
+        "REQ-a--b-",
+        "REQ-a.b",
+        "REQ-a_b.",
         "REQ",
         "SPC",
+        "TST",
         "hello",
         "",
+        "a",
     ]);
 }
 
 #[test]
-fn name_cache_sanity() {
+fn sanity_name_cache() {
     let expected1 = "REQ-foo";
     let expected2 = "REQ-FOO";
     let name1 = Name::from_str(expected1).unwrap();
@@ -170,7 +177,7 @@ fn name_cache_sanity() {
 }
 
 #[test]
-fn serde_sanity() {
+fn sanity_serde_name() {
     let json = r#"["REQ-foo","REQ-FOO","REQ-bar","SPC-foo-bar","tst-foo-BAR"]"#;
     let expected = &[
         "REQ-foo",
@@ -186,8 +193,8 @@ fn serde_sanity() {
 }
 
 #[test]
-fn parent_sanity() {
-    assert_parents(&[
+fn sanity_parent() {
+    assert_method(Name::parent, &[
         // no parents
         ("REQ-foo", None),
         ("TST-a", None),
@@ -200,8 +207,21 @@ fn parent_sanity() {
     ]);
 }
 
+#[test]
+fn sanity_auto_partof() {
+    assert_method(Name::auto_partof, &[
+        ("REQ-foo", None),
+        ("REQ-a-b", None),
+        ("REQ-A-B", None),
+
+        ("spc-aasdf-bbSdf-DES", Some("REQ-aasdf-bbSdf-DES")),
+        ("TSt-a", Some("SPC-a")),
+        ("TST-23kjskljef32", Some("SPC-23kjskljef32")),
+    ]);
+}
+
 quickcheck! {
-    fn roundtrip(name: Name) -> bool {
+    fn fuzz_name_roundtrip(name: Name) -> bool {
         name::clear_cache();
         let repr = name.key_str();
         let from_repr = Name::from_str(&repr).unwrap();
@@ -209,7 +229,7 @@ quickcheck! {
         from_repr == name && repr == from_repr.key_str()
     }
 
-    fn parent(name: Name) -> bool {
+    fn fuzz_name_parent(name: Name) -> bool {
         name::clear_cache();
         // basically do the same thing but a sligtly different way
         let mut items = name.raw.split('-').map(|s| s.to_string()).collect::<Vec<_>>();
@@ -222,5 +242,20 @@ quickcheck! {
         } else {
             name.parent().is_none()
         }
+    }
+
+    fn fuzz_name_auto_partof(name: Name) -> bool {
+        name::clear_cache();
+        let ty = match name.ty {
+            Type::REQ => return name.auto_partof().is_none(),
+            Type::SPC => "REQ",
+            Type::TST => "SPC",
+        };
+        let mut items = name.raw.split('-').map(|s| s.to_string()).collect::<Vec<_>>();
+        items[0] = ty.into();
+        let expected_raw = items.join("-");
+        let expected = Name::from_str(&expected_raw).unwrap();
+        let result = name.auto_partof().unwrap();
+        expected_raw == result.raw && expected == result
     }
 }

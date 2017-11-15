@@ -69,6 +69,13 @@ pub struct NameCache {
 
 // CONSTANTS
 
+/// The location in the name where the type is split at
+/// ```
+/// REQ-foo
+///    ^
+/// ```
+const TYPE_SPLIT_LOC: usize = 3;
+
 macro_rules! NAME_VALID_CHARS {
     () => { "A-Z0-9_" };
 }
@@ -84,11 +91,11 @@ pub const NAME_VALID_STR: &'static str = concat!(
 
 lazy_static!{
     /// Valid name regular expression
-    pub static ref NAME_VALID_RE: Regex = Regex::new(
+    static ref NAME_VALID_RE: Regex = Regex::new(
         &format!("(?i)^{}$", NAME_VALID_STR)).unwrap();
 
     /// global cache of names
-    pub static ref NAME_CACHE: Mutex<NameCache> = Mutex::new(NameCache {
+    static ref NAME_CACHE: Mutex<NameCache> = Mutex::new(NameCache {
         names: HashMap::new(),
         keys: HashMap::new(),
     });
@@ -98,13 +105,32 @@ lazy_static!{
 // NAME METHODS
 
 impl Name {
+    /// The parent of the name. This must exist if not None for all
+    /// artifats.
     pub fn parent(&self) -> Option<Name> {
         let loc = self.raw.rfind('-').expect("name.parent:rfind");
-        if loc == 3 {
+        if loc == TYPE_SPLIT_LOC {
             None
         } else {
             Some(Name::from_str(&self.raw[0..loc]).expect("name.parent:from_str"))
         }
+    }
+
+    /// The artifact that this COULD be automatically linked to.
+    ///
+    /// - REQ is not autolinked to anything
+    /// - SPC is autolinked to the REQ with the same name
+    /// - TST is autolinked to the SPC with the same name
+    pub fn auto_partof(&self) -> Option<Name> {
+        let ty = match self.ty {
+            Type::REQ => return None,
+            Type::SPC => Type::REQ,
+            Type::TST => Type::SPC,
+        };
+        let mut out = String::with_capacity(self.raw.len());
+        out.push_str(ty.as_str());
+        out.push_str(&self.raw[TYPE_SPLIT_LOC..self.raw.len()]);
+        Some(Name::from_str(&out).unwrap())
     }
 }
 
@@ -222,7 +248,7 @@ impl NameCache {
     /// Get the name from the cache, inserting it if it doesn't exist
     ///
     /// This is the primary way that names are actually instantiated
-    pub fn get(&mut self, raw: &str) -> Result<Name> {
+    fn get(&mut self, raw: &str) -> Result<Name> {
         // FIXME: I would like to use Arc for raw+name, but
         // Borrow<str> is not implemented for Arc<String>
         if let Some(n) = self.names.get(raw) {
@@ -241,7 +267,7 @@ impl NameCache {
             self.keys.entry(k).key().clone()
         };
 
-        let ty = match &key[0..3] {
+        let ty = match &key[0..TYPE_SPLIT_LOC] {
             "REQ" => Type::REQ,
             "SPC" => Type::SPC,
             "TST" => Type::TST,
