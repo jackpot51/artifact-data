@@ -17,6 +17,13 @@ use regex::Regex;
 
 // EXPORTED TYPES AND FUNCTIONS
 
+/// Mosty used for tests to prevent memory from balooning.
+pub fn clear_cache() {
+    let mut cache = NAME_CACHE.lock().unwrap();
+    cache.keys.clear();
+    cache.names.clear();
+}
+
 #[derive(Debug, Fail)]
 enum NameError {
     #[fail(display = "{}", msg)]
@@ -250,11 +257,5 @@ impl NameCache {
         };
         self.names.insert(raw.into(), name.clone());
         Ok(name)
-    }
-
-    /// Mosty used for tests to prevent memory from balooning.
-    pub fn clear(&mut self) {
-        self.keys.clear();
-        self.names.clear();
     }
 }

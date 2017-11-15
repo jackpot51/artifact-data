@@ -1,7 +1,7 @@
 use prelude::*;
 use dev_prelude::*;
 use test_prelude::*;
-use name::*;
+use name::{self, Name};
 
 use serde_json;
 
@@ -9,13 +9,6 @@ use serde_json;
 
 impl Arbitrary for Name {
     fn arbitrary<G: Gen>(g: &mut G) -> Name {
-        {
-            // prevent memory from balooning with
-            // unheld references
-            let mut cache = NAME_CACHE.lock().unwrap();
-            cache.clear();
-        }
-
         let size = g.size() + 2;
         let max_sub = g.gen_range(1, size);
         let num_cells = g.gen_range(1, size);
@@ -67,12 +60,6 @@ impl Iterator for NameShrinker {
                 raw.pop();
                 raw.join("-")
             };
-            {
-                // prevent memory from balooning with
-                // unheld references
-                let mut cache = NAME_CACHE.lock().unwrap();
-                cache.clear();
-            }
             let seed = Name::from_str(&raw).expect(
                 &format!("invalid name after shrink: {:?}", raw));
             self.seed = seed.clone();
@@ -204,7 +191,7 @@ fn parent_sanity() {
         // no parents
         ("REQ-foo", None),
         ("TST-a", None),
-        ("TST-23kjskljef32", None)
+        ("TST-23kjskljef32", None),
 
         // has parents
         ("REQ-a-b", Some("REQ-a")),
@@ -215,6 +202,7 @@ fn parent_sanity() {
 
 quickcheck! {
     fn roundtrip(name: Name) -> bool {
+        name::clear_cache();
         let repr = name.key_str();
         let from_repr = Name::from_str(&repr).unwrap();
 
@@ -222,6 +210,8 @@ quickcheck! {
     }
 
     fn parent(name: Name) -> bool {
+        name::clear_cache();
+        // basically do the same thing but a sligtly different way
         let mut items = name.raw.split('-').map(|s| s.to_string()).collect::<Vec<_>>();
         if items.len() > 2 {
             items.pop();
