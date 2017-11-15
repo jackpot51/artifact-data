@@ -13,6 +13,7 @@ extern crate serde;
 
 #[cfg(test)]
 #[macro_use] extern crate quickcheck;
+#[cfg(test)] extern crate serde_json;
 
 mod name;
 mod dev_prelude;

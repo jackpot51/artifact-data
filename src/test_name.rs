@@ -3,6 +3,8 @@ use dev_prelude::*;
 use test_prelude::*;
 use name::*;
 
+use serde_json;
+
 impl Arbitrary for InternalName {
     fn arbitrary<G: Gen>(g: &mut G) -> InternalName {
         let size = g.size() + 2;
@@ -144,15 +146,30 @@ fn names_sanity() {
 #[test]
 fn name_cache_sanity() {
     NAME_CACHE.clear();
-    let expected = "REQ-foo";
-    let name = cached_name(expected).unwrap();
-    let name2 = cached_name("REQ-FOO").unwrap();
+    let expected1 = "REQ-foo";
+    let expected2 = "REQ-FOO";
+    let name1 = cached_name(expected1).unwrap();
+    let name2 = cached_name(expected2).unwrap();
 
-    assert_eq!(name, name2);
+    assert_eq!(name1, name2);
+    assert_eq!(expected1, name1.raw);
+    assert_eq!(expected2, name2.raw);
+}
 
-    // The "raw" data is the first inserted name
-    assert_eq!(expected, name.raw);
-    assert_eq!(expected, name2.raw);
+#[test]
+fn serde_sanity() {
+    NAME_CACHE.clear();
+    let expected = &[
+        "REQ-foo",
+        "REQ-FOO",
+        "REQ-bar",
+        "SPC-foo-bar",
+        "tst-foo-BAR",
+    ];
+    let json = serde_json::to_string(expected).unwrap();
+    let names: Vec<Name> = serde_json::from_str(&json).unwrap();
+    let result = names.map(|n| n.raw).collect::<Vec<_>>();
+    assert_eq!(expected, &result);
 }
 
 quickcheck! {

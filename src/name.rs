@@ -3,12 +3,14 @@
 //! This is the name module, the module for representing artifact names
 //! and their global cache.
 
+
 use prelude::*;
 use dev_prelude::*;
 use regex::Regex;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::convert::AsRef;
+use std::ops::Deref;
 
 // EXPORTED TYPES AND FUNCTIONS
 
@@ -35,9 +37,23 @@ pub struct NameCache {
     names: Mutex<HashMap<String, Name>>,
 }
 
+// #[derive(Serialize, Deserialize)]
+// #[serde(with = "serde_name")]
+#[derive(Clone)]
 /// The atomically reference counted name, the primary one used by
 /// this module.
-type Name = Arc<InternalName>;
+pub struct Name {
+    internal_name: Arc<InternalName>,
+}
+
+impl Deref for Name {
+    type Target = InternalName;
+
+    fn deref(&self) -> &InternalName {
+       self.internal_name.as_ref()
+    }
+}
+
 
 /// type of an `Artifact`
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -185,11 +201,19 @@ impl FromStr for Type {
 
 impl NameCache {
     /// Get the name from the cache, inserting it if it doesn't exist
-    pub fn get(&self, name: &str) -> Result<Name> {
+    pub fn get(&self, raw: &str) -> Result<Name> {
         let mut names = self.names.lock().expect("NameCache poisoned");
-        let out  = names.entry(name.to_ascii_uppercase())
-            .or_insert(Arc::new(InternalName::from_str(name)?));
-        Ok((*out).clone())
+        // I'm pretty sure this is actually faster than the entry API
+        // We would have to call `raw.to_string()` to do `names.entry`,
+        // but that isn't necessar.
+        if let Some(n) = names.get(raw) {
+            return Ok(n.clone());
+        }
+        let name = Name {
+            internal_name: Arc::new(InternalName::from_str(raw)?),
+        };
+        names.insert(raw.to_string(), name.clone());
+        Ok(name)
     }
 
     #[allow(dead_code)]
@@ -201,5 +225,24 @@ impl NameCache {
     pub fn clear(&self) {
         let mut names = self.names.lock().expect("NameCache poisoned");
         names.clear();
+    }
+}
+
+/// Methods for serializing/deserializing names
+mod serde_name {
+    use super::{Name, cached_name};
+    use serde::{self, Deserialize, Serializer, Deserializer};
+
+    pub fn serialize<S>(name: &Name, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        serializer.serialize_str(&name.raw)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Name, D::Error>
+        where D: Deserializer<'de>
+    {
+        let s = String::deserialize(deserializer)?;
+        cached_name(&s).map_err(serde::de::Error::custom)
     }
 }
