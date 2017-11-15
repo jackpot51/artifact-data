@@ -16,14 +16,9 @@ use std::ops::Deref;
 
 #[derive(Debug, Fail)]
 enum NameError {
-    #[fail(display = "Name is invalid: {}", raw)]
+    #[fail(display = "{}", msg)]
     InvalidName {
-        raw: String,
-    },
-
-    #[fail(display = "Name must start with REQ, SPC or TST: {}", raw)]
-    InvalidType {
-        raw: String,
+        msg: String,
     },
 }
 
@@ -69,13 +64,15 @@ pub struct InternalName {
     /// Capitalized form
     pub key: Arc<String>,
     /// Raw "user" form
-    pub raw: Arc<String>,
+    pub raw: String,
 }
 
 /// Global cache of names
 pub struct NameCache {
-    names: HashMap<Arc<String>, Name>,
-    keys: HashSet<Arc<String>>,
+    names: HashMap<String, Name>,
+    // Use HashMap just for the entry API
+    // also... this is equivalent when optimized
+    keys: HashMap<Arc<String>, ()>,
 }
 
 
@@ -102,7 +99,7 @@ lazy_static!{
     /// global cache of names
     pub static ref NAME_CACHE: Mutex<NameCache> = Mutex::new(NameCache {
         names: HashMap::new(),
-        keys: HashSet::new(),
+        keys: HashMap::new(),
     });
 }
 
@@ -173,56 +170,46 @@ impl Type {
     }
 }
 
-impl FromStr for Type {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Type> {
-        match s.to_ascii_uppercase().as_str() {
-            "REQ" => Ok(Type::REQ),
-            "SPC" => Ok(Type::SPC),
-            "TST" => Ok(Type::TST),
-            _ => Err(NameError::InvalidType { raw: s.into()}.into()),
-        }
-    }
-}
-
 // NAME CACHE METHODS
 
 impl NameCache {
     /// Get the name from the cache, inserting it if it doesn't exist
     pub fn get(&mut self, raw: &str) -> Result<Name> {
-        let raw = Arc::new(raw.to_string());
-        if let Some(n) = self.names.get(&raw) {
+        // FIXME: I would like to use Arc for raw+name, but
+        // Borrow<str> is not implemented for Arc<String>
+        if let Some(n) = self.names.get(raw) {
             return Ok(n.clone());
         }
 
         if !NAME_VALID_RE.is_match(&raw) {
-            return Err(NameError::InvalidName { raw: raw.to_string() }.into());
+            let msg = format!("Name is invalid: {}", raw);
+            return Err(NameError::InvalidName { msg: msg }.into());
         }
 
-        let ty = Type::from_str(&raw[0..3])?;
-
-        // get the cached reference counted key
-        // note: names with different `raw` attributes can have the same key
+        // Get the cached reference counted key
+        // note: names can have different capitalization
         let key = {
-            let key = Arc::new(raw.to_ascii_uppercase());
-            if !self.keys.contains(&key) {
-                self.keys.insert(key.clone());
-            }
-            self.keys.get(&key).unwrap().clone()
+            let k = Arc::new(raw.to_ascii_uppercase());
+            self.keys.entry(k).key().clone()
         };
 
-        // let raw = Arc::new(raw.to_string());
+        let ty = match &key[0..4] {
+            "REQ" => Type::REQ,
+            "SPC" => Type::SPC,
+            "TST" => Type::TST,
+            _ => unreachable!(),
+        };
 
         let internal = InternalName {
             ty: ty,
             key: key,
-            raw: raw.clone(),
+            raw: raw.into(),
         };
 
         let name = Name {
             internal_name: Arc::new(internal),
         };
-        self.names.insert(raw, name.clone());
+        self.names.insert(raw.into(), name.clone());
         Ok(name)
     }
 }
