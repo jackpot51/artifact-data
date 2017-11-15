@@ -14,11 +14,6 @@ use std::ops::Deref;
 
 // EXPORTED TYPES AND FUNCTIONS
 
-/// Get the name from the cache, inserting it if it doesn't exist
-pub fn cached_name(name: &str) -> Result<Name> {
-    NAME_CACHE.get(name)
-}
-
 #[derive(Debug, Fail)]
 enum NameError {
     #[fail(display = "Name is invalid: {}", raw)]
@@ -30,11 +25,6 @@ enum NameError {
     InvalidType {
         raw: String,
     },
-}
-
-/// Global cache of names
-pub struct NameCache {
-    names: Mutex<HashMap<String, Name>>,
 }
 
 // #[derive(Serialize, Deserialize)]
@@ -55,6 +45,14 @@ impl Deref for Name {
 }
 
 
+impl FromStr for Name {
+    type Err = Error;
+    fn from_str(raw: &str) -> Result<Name> {
+        let mut cache = NAME_CACHE.lock().expect("name cache poisioned");
+        cache.get(raw)
+    }
+}
+
 /// type of an `Artifact`
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Type {
@@ -69,10 +67,17 @@ pub struct InternalName {
     /// The artifact type, determined from the name prefix
     pub ty: Type,
     /// Capitalized form
-    pub key: Vec<String>,
+    pub key: Arc<String>,
     /// Raw "user" form
-    pub raw: String,
+    pub raw: Arc<String>,
 }
+
+/// Global cache of names
+pub struct NameCache {
+    names: HashMap<Arc<String>, Name>,
+    keys: HashSet<Arc<String>>,
+}
+
 
 // CONSTANTS
 
@@ -95,9 +100,10 @@ lazy_static!{
         &format!("(?i)^{}$", NAME_VALID_STR)).unwrap();
 
     /// global cache of names
-    pub static ref NAME_CACHE: NameCache = NameCache {
-        names: Mutex::new(HashMap::new()),
-    };
+    pub static ref NAME_CACHE: Mutex<NameCache> = Mutex::new(NameCache {
+        names: HashMap::new(),
+        keys: HashSet::new(),
+    });
 }
 
 
@@ -112,29 +118,11 @@ impl InternalName {
     /// Get the "key" representation of the name.
     ///
     /// i.e. `"TST-FOO-BAR"`
-    pub fn key_string(&self) -> String {
-        let mut out = self.ty.as_str().to_string();
-        for n in &self.key {
-            write!(out, "-{}", n).unwrap();
-        }
-        out
+    pub fn key_str(&self) -> &str {
+        &self.key
     }
 }
 
-impl FromStr for InternalName {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<InternalName> {
-        if !NAME_VALID_RE.is_match(s) {
-            Err(NameError::InvalidName { raw: s.into() }.into())
-        } else {
-            Ok(InternalName {
-                ty: Type::from_str(&s[0..3])?,
-                key: s[4..].split('-').map(|i| i.to_ascii_uppercase()).collect(),
-                raw: s.into(),
-            })
-        }
-    }
-}
 
 impl Hash for InternalName {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -201,36 +189,48 @@ impl FromStr for Type {
 
 impl NameCache {
     /// Get the name from the cache, inserting it if it doesn't exist
-    pub fn get(&self, raw: &str) -> Result<Name> {
-        let mut names = self.names.lock().expect("NameCache poisoned");
-        // I'm pretty sure this is actually faster than the entry API
-        // We would have to call `raw.to_string()` to do `names.entry`,
-        // but that isn't necessar.
-        if let Some(n) = names.get(raw) {
+    pub fn get(&mut self, raw: &str) -> Result<Name> {
+        let raw = Arc::new(raw.to_string());
+        if let Some(n) = self.names.get(&raw) {
             return Ok(n.clone());
         }
-        let name = Name {
-            internal_name: Arc::new(InternalName::from_str(raw)?),
-        };
-        names.insert(raw.to_string(), name.clone());
-        Ok(name)
-    }
 
-    #[allow(dead_code)]
-    /// Clear the cache, mostly used in testing but provided in
-    /// case it is needed
-    ///
-    /// Since all the internal items are just reference counted
-    /// InternalNames, they will still exist
-    pub fn clear(&self) {
-        let mut names = self.names.lock().expect("NameCache poisoned");
-        names.clear();
+        if !NAME_VALID_RE.is_match(&raw) {
+            return Err(NameError::InvalidName { raw: raw.to_string() }.into());
+        }
+
+        let ty = Type::from_str(&raw[0..3])?;
+
+        // get the cached reference counted key
+        // note: names with different `raw` attributes can have the same key
+        let key = {
+            let key = Arc::new(raw.to_ascii_uppercase());
+            if !self.keys.contains(&key) {
+                self.keys.insert(key.clone());
+            }
+            self.keys.get(&key).unwrap().clone()
+        };
+
+        // let raw = Arc::new(raw.to_string());
+
+        let internal = InternalName {
+            ty: ty,
+            key: key,
+            raw: raw.clone(),
+        };
+
+        let name = Name {
+            internal_name: Arc::new(internal),
+        };
+        self.names.insert(raw, name.clone());
+        Ok(name)
     }
 }
 
 /// Methods for serializing/deserializing names
 mod serde_name {
-    use super::{Name, cached_name};
+    use super::{Name};
+    use std::str::FromStr;
     use serde::{self, Deserialize, Serializer, Deserializer};
 
     pub fn serialize<S>(name: &Name, serializer: S) -> Result<S::Ok, S::Error>
@@ -242,7 +242,8 @@ mod serde_name {
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Name, D::Error>
         where D: Deserializer<'de>
     {
+        // FIXME: can this be str::deserizlie?
         let s = String::deserialize(deserializer)?;
-        cached_name(&s).map_err(serde::de::Error::custom)
+        Name::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
