@@ -4,13 +4,14 @@
 //! and their global cache.
 
 
+use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
+use std::fmt;
+use std::io;
+
 use prelude::*;
 use dev_prelude::*;
 use regex::Regex;
-use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
-use std::convert::AsRef;
-use std::ops::Deref;
 
 // EXPORTED TYPES AND FUNCTIONS
 
@@ -22,15 +23,22 @@ enum NameError {
     },
 }
 
+#[derive(Clone, PartialEq, Eq)]
 // #[derive(Serialize, Deserialize)]
 // #[serde(with = "serde_name")]
-#[derive(Clone)]
 /// The atomically reference counted name, the primary one used by
 /// this module.
 pub struct Name {
     internal_name: Arc<InternalName>,
 }
 
+impl fmt::Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.internal_name)
+    }
+}
+
+// Name is basically a smart pointer for internal_name
 impl Deref for Name {
     type Target = InternalName;
 
@@ -193,7 +201,7 @@ impl NameCache {
             self.keys.entry(k).key().clone()
         };
 
-        let ty = match &key[0..4] {
+        let ty = match &key[0..3] {
             "REQ" => Type::REQ,
             "SPC" => Type::SPC,
             "TST" => Type::TST,
@@ -211,6 +219,11 @@ impl NameCache {
         };
         self.names.insert(raw.into(), name.clone());
         Ok(name)
+    }
+
+    pub fn clear(&mut self) {
+        self.keys.clear();
+        self.names.clear();
     }
 }
 

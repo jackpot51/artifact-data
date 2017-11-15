@@ -3,10 +3,18 @@ use dev_prelude::*;
 use test_prelude::*;
 use name::*;
 
+
 use serde_json;
 
-impl Arbitrary for InternalName {
-    fn arbitrary<G: Gen>(g: &mut G) -> InternalName {
+impl Arbitrary for Name {
+    fn arbitrary<G: Gen>(g: &mut G) -> Name {
+        {
+            // prevent memory from balooning with
+            // unheld references
+            let mut cache = NAME_CACHE.lock().unwrap();
+            cache.clear();
+        }
+
         let size = g.size() + 2;
         let max_sub = g.gen_range(1, size);
         let num_cells = g.gen_range(1, size);
@@ -17,7 +25,7 @@ impl Arbitrary for InternalName {
         }).collect::<Vec<String>>();
         cells.insert(0, ty.to_string());
         let raw = cells.join("-");
-        InternalName::from_str(&raw).expect(
+        Name::from_str(&raw).expect(
             &format!("invalid arbitrary name: {}", raw)
         )
     }
@@ -30,11 +38,11 @@ impl Arbitrary for InternalName {
 
 ///Iterator which returns successive attempts to shrink the Name's seed
 struct NameShrinker {
-    seed: InternalName,
+    seed: Name,
 }
 
 impl NameShrinker {
-    fn new(seed: InternalName) -> Box<Iterator<Item=InternalName>> {
+    fn new(seed: Name) -> Box<Iterator<Item=Name>> {
         let mut shrinker = NameShrinker {
             seed: seed,
         };
@@ -46,7 +54,7 @@ impl NameShrinker {
 
 
 impl Iterator for NameShrinker {
-    type Item = InternalName;
+    type Item = Name;
     fn next(&mut self) -> Option<Self::Item> {
         if self.seed.key.len() > 1 {
             // just modify the seed to be one element smaller
@@ -58,7 +66,13 @@ impl Iterator for NameShrinker {
                 raw.pop();
                 raw.join("-")
             };
-            let seed = InternalName::from_str(&raw).expect(
+            {
+                // prevent memory from balooning with
+                // unheld references
+                let mut cache = NAME_CACHE.lock().unwrap();
+                cache.clear();
+            }
+            let seed = Name::from_str(&raw).expect(
                 &format!("invalid name after shrink: {:?}", raw));
             self.seed = seed.clone();
             Some(seed)
@@ -72,7 +86,7 @@ impl Iterator for NameShrinker {
 fn assert_names_valid(raw: &[&str]) {
     let errors = raw
         .iter()
-        .map(|r| (r, InternalName::from_str(r)))
+        .map(|r| (r, Name::from_str(r)))
         .filter_map(|(raw, result)| match result {
             Ok(_) => None,
             Err(e) => Some(raw),
@@ -87,26 +101,13 @@ fn assert_names_valid(raw: &[&str]) {
 fn assert_names_invalid(raw: &[&str]) {
     let errors = raw
         .iter()
-        .map(|r| (r, InternalName::from_str(r)))
+        .map(|r| (r, Name::from_str(r)))
         .filter_map(|(raw, result)| match result {
             Ok(n) => Some(raw),
             Err(_) => None,
         }).collect::<Vec<_>>();
     if !errors.is_empty() {
         panic!("The following names were valid but shouldn't have been:\n{:#?}", errors);
-    }
-}
-
-#[test]
-fn names_re_sanity() {
-    let invalid = &[
-        "REQ",
-        "REQ-",
-        "REQ-a-",
-    ];
-
-    for v in invalid {
-        assert!(!NAME_VALID_RE.is_match(v));
     }
 }
 
@@ -145,38 +146,36 @@ fn names_sanity() {
 
 #[test]
 fn name_cache_sanity() {
-    NAME_CACHE.clear();
     let expected1 = "REQ-foo";
     let expected2 = "REQ-FOO";
-    let name1 = cached_name(expected1).unwrap();
-    let name2 = cached_name(expected2).unwrap();
+    let name1 = Name::from_str(expected1).unwrap();
+    let name2 = Name::from_str(expected2).unwrap();
 
     assert_eq!(name1, name2);
     assert_eq!(expected1, name1.raw);
     assert_eq!(expected2, name2.raw);
 }
 
-#[test]
-fn serde_sanity() {
-    NAME_CACHE.clear();
-    let expected = &[
-        "REQ-foo",
-        "REQ-FOO",
-        "REQ-bar",
-        "SPC-foo-bar",
-        "tst-foo-BAR",
-    ];
-    let json = serde_json::to_string(expected).unwrap();
-    let names: Vec<Name> = serde_json::from_str(&json).unwrap();
-    let result = names.map(|n| n.raw).collect::<Vec<_>>();
-    assert_eq!(expected, &result);
-}
+// #[test]
+// fn serde_sanity() {
+//     let expected = &[
+//         "REQ-foo",
+//         "REQ-FOO",
+//         "REQ-bar",
+//         "SPC-foo-bar",
+//         "tst-foo-BAR",
+//     ];
+//     let json = serde_json::to_string(expected).unwrap();
+//     let names: Vec<Name> = serde_json::from_str(&json).unwrap();
+//     let result = names.iter().map(|n| n.raw).collect::<Vec<_>>();
+//     assert_eq!(expected, &result);
+// }
 
 quickcheck! {
-    fn roundtrip(name: InternalName) -> bool {
-        let repr = name.key_string();
-        let from_repr = InternalName::from_str(&repr).unwrap();
+    fn roundtrip(name: Name) -> bool {
+        let repr = name.key_str();
+        let from_repr = Name::from_str(&repr).unwrap();
 
-        from_repr == name && repr == from_repr.key_string()
+        from_repr == name && repr == from_repr.key_str()
     }
 }
